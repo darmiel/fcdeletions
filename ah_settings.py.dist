@@ -1,0 +1,55 @@
+settings = {
+    'telegram': {
+        # get your information on
+        # https://my.telegram.org/
+        'api-key': 0000000,
+        'api-hash': 'ffffffffffffffffffffffffffffffff',
+        'phone': '+4900000000000',
+        'database-encryption-key': 'changeme1234' # by default 'changeme1234'
+    },
+    'forwarder': {
+        # chat id for ~~~~~~~~ channel
+        'chat-pull': 0000000000,
+        # chat id for the backup channel
+        'chat-publish': 0000000000
+    },
+    'del-edit-detector': {
+        # chat to check for edited or deleted messages
+        'checking-chat': 0000000000,
+        # chat to send these changes
+        'sending-chat': 0000000000,
+        # redis is required for caching messages in the checked chat
+        'redis': {
+            'host': '127.0.0.1',
+            'port': 6379,
+            'db': 0,
+            'password': None,
+            # duration to save messages in seconds
+            # currently 7 days
+            'ttl': 604800
+        },
+        # a random emoji is displayed on the left side on an username
+        'people-emojis': [
+            "👶",
+            "🧒",
+            "👦",
+            "👧",
+            "🧑",
+            "👱",
+            "👨",
+            "👨",
+            "🧔",
+            "👨‍🦰",
+            "👨‍🦳",
+            "👨‍🦲",
+            "👩",
+            "👩‍🦰",
+            "👩‍🦱",
+            "👩‍🦳",
+            "👱‍♀️",
+            "🧓",
+            "👴", 
+            "👵"
+        ]
+    }
+}
