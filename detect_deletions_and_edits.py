@@ -4,26 +4,25 @@ from redis import Redis
 from redis import ConnectionError
 
 from datetime import datetime
+from ah_settings import settings
 
 import json
 import random
 
 # Settings
-check_chat_id = -1001127975224
-deletion_chat_id_relay = -1001285655987
-redis_ttl = 604800
-redis_auth = None
-
-people_emojis = [
-    "👶", "🧒", "👦", "👧", "🧑", "👱", "👨", "👨", "🧔", "👨‍🦰", "👨‍🦳", "👨‍🦲", "👩", "👩‍🦰", "👩‍🦱", "👩‍🦳", "👱‍♀️", "🧓", "👴", "👵"
-]
+s = settings['del-edit-detector']
 
 #
 #
 #
 
 # Redis stuff
-redis = Redis("127.0.0.1", port=6379, db=0, password=redis_auth)
+redis = Redis(
+    s['redis']['host'], 
+    port=s['redis']['port'], 
+    db=s['redis']['db'], 
+    password=s['redis']['password']
+)
 
 try:
     redis.ping()
@@ -37,10 +36,10 @@ except ConnectionError:
 
 # initialize telegram client
 tg = Telegram(
-    1403031, # api_id
-    '34315b80b5f16f19a353834967287a01', # api_hash
-    phone='+19794126794', # phone-#
-    database_encryption_key='changeme1234' # database_encryption_key, by default 'changeme1234'
+    settings['telegram']['api-key'],
+    settings['telegram']['api-hash'],
+    database_encryption_key=settings['telegram']['database-encryption-key'],
+    phone=settings['telegram']['phone']
 )
 
 # login to telegram, you may have to input a 2fa-key
@@ -85,18 +84,17 @@ class Message:
     def get_redis_key(self):
         return f"{self.chat_id}-{self.msg_id}"
 
-    def valid_chat(self, chat_id = check_chat_id):
+    def valid_chat(self, chat_id):
         return self.chat_id == chat_id
 
     def save_redis(self):
-        global redis, redis_ttl
+        global redis, s
 
         # insert into redis
-        js = json.dumps(self.message_raw)
         redis.set(self.get_redis_key(), json.dumps(self.message_raw))
 
         # expire after 7 days (7 * 86400)
-        redis.expire(self.get_redis_key(), redis_ttl)
+        redis.expire(self.get_redis_key(), s['redis']['ttl'])
 
 def message_by_update(update) -> Message:
 
@@ -166,7 +164,7 @@ def on_message(update):
 
     msg = message_by_update(update['message'])
 
-    if msg == None or not msg.valid_chat(check_chat_id):
+    if msg == None or not msg.valid_chat(s['checking-chat']):
         return
 
     # save message to redis
@@ -183,7 +181,7 @@ def on_messages_delete(update):
     msg_chat_id = update['chat_id']
     
     # Check for chat id
-    if msg_chat_id != check_chat_id:
+    if msg_chat_id != s['checking-chat']:
         return
     
     if update['from_cache'] != False:
@@ -218,7 +216,7 @@ def check_and_send_deleted_message(chat_id, message_id):
     m = ""
 
     # Author
-    m += random.choice(people_emojis) + " " # emoji
+    m += random.choice(s['people-emojis']) + " " # emoji
     if user == None:
         m += f"User **#{msg.author_id}**:\n"
     else:
@@ -233,7 +231,7 @@ def check_and_send_deleted_message(chat_id, message_id):
     # content as text
     m += f'🗑️ **@{msg.content_type}**: {msg.content_text}'
     
-    res = tg.send_message(deletion_chat_id_relay, m)
+    res = tg.send_message(s['sending-chat'], m)
     res.wait()
 
 def on_message_edit(update):
@@ -245,7 +243,7 @@ def on_message_edit(update):
     msg_chat_id = update['chat_id']
     
     # Check for chat id
-    if msg_chat_id != check_chat_id:
+    if msg_chat_id != s['checking-chat']:
         return
 
     if not 'message_id' in update:
@@ -284,7 +282,7 @@ def on_message_edit(update):
     m = ""
 
     # Author
-    m += random.choice(people_emojis) + " " # emoji
+    m += random.choice(s['people-emojis']) + " " # emoji
     if u == None:
         m += f"User **#{nm.author_id}**:\n"
     else:
@@ -302,7 +300,7 @@ def on_message_edit(update):
     m += f'✏️ **@{nm.content_type}**: {nm.content_text}\n'
     
     print("Sending ...")
-    res = tg.send_message(deletion_chat_id_relay, m)
+    res = tg.send_message(s['sending-chat'], m)
     res.wait()
 
 tg.add_update_handler('updateDeleteMessages', on_messages_delete)
