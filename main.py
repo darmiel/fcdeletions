@@ -381,8 +381,6 @@ def forwarder_on_message(update):
     })
     res.wait()
 
-    print(settings['forwarder']['chat-publish'])
-
     if res.error:
         pretty_print(bmodes.FWD, colored(' -> ', 'white') + colored('Error: ', 'red') + colored(res.error_info, 'white'))
     else:
