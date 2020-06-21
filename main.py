@@ -4,7 +4,11 @@ from redis import Redis
 from redis import ConnectionError
 
 from datetime import datetime
+
 from ah_settings import settings
+from ah_settings import bmodes
+
+from termcolor import colored
 
 import json
 import random
@@ -16,19 +20,31 @@ s = settings['del-edit-detector']
 #
 #
 
-# Redis stuff
-redis = Redis(
-    s['redis']['host'], 
-    port=s['redis']['port'], 
-    db=s['redis']['db'], 
-    password=s['redis']['password']
-)
+def pretty_print(mode: str, msg: str):
+    mode_color = 'white'
+    if mode == bmodes.FWD:
+        mode_color = 'green'
+    elif mode == bmodes.DETECTOR:
+        mode_color = 'yellow'
+    elif mode == bmodes.DBG:
+        mode_color = 'blue'
+    print(colored('[', 'white') + colored(mode, mode_color) + colored(']: ', 'white') + colored(msg, 'white'))
 
-try:
-    redis.ping()
-except ConnectionError:
-    print("[ERR] Redis not connected.")
-    exit()
+if settings['del-edit-detector']['enable']:
+    # Redis stuff
+    redis = Redis(
+        s['redis']['host'], 
+        port=s['redis']['port'], 
+        db=s['redis']['db'], 
+        password=s['redis']['password']
+    )
+
+    try:
+        redis.ping()
+    except ConnectionError as e:
+        pretty_print(bmodes.DETECTOR, colored('ERROR', 'red') + colored('Redis connection error:', 'white'))
+        print(e)
+        exit()
 
 #
 #
@@ -68,7 +84,13 @@ def user_by_id(user_id: int) -> User:
     if not 'username' in res:
         return None
 
-    return User(id=res['id'], first_name=res['first_name'], last_name=res['last_name'], username=res['username'], phone_number=res['phone_number'])
+    return User(
+        id=res['id'], 
+        first_name=res['first_name'], 
+        last_name=res['last_name'], 
+        username=res['username'], 
+        phone_number=res['phone_number']
+    )
 
 class Message:
     def __init__(self, msg_id = None, chat_id = None, date = None, author_id = None, content_type = None, content_text = None, edit_date = None, message_raw = None):
@@ -158,7 +180,12 @@ def get_message_as_text(message):
 
     return msg_content_text
 
-def on_message(update):
+"""
+This event is executed as soon as a message is received. 
+We need this event to temporarily store all messages in the redis for about 7 days, 
+so that the content can still be played back when the message is deleted. 
+"""
+def detector_on_message(update):
     if not 'message' in update:
         return
 
@@ -170,7 +197,12 @@ def on_message(update):
     # save message to redis
     msg.save_redis()
 
-def on_messages_delete(update):
+"""
+This event is executed when messages are deleted. 
+The cached message, if any, 
+will be pulled out of the redis and sent to the channel if it is not a cached-deletion.
+"""
+def detector_on_messages_delete(update):
 
     # check if 'chat_id' is in update
     if not 'chat_id' in update:
@@ -187,7 +219,8 @@ def on_messages_delete(update):
     if update['from_cache'] != False:
         return
 
-    print(update)
+    # print update to console
+    pretty_print(bmodes.DETECTOR, colored('Deleted: ', 'cyan') + colored(update, 'white'))
 
     # check if there are any deleted messages (there should!)
     if not 'message_ids' in update:
@@ -204,7 +237,11 @@ def check_and_send_deleted_message(chat_id, message_id):
 
     msg = message_by_redis(chat_id, message_id)
     if msg == None:
-        print(f"Dbg: Message #{message_id} in #{chat_id} deleted, but not cached")
+        pretty_print(bmodes.DETECTOR, 
+            colored(message_id, 'magenta') + 
+            colored(' in ', 'white') + 
+            colored(chat_id, 'magenta') + 
+            colored(' deleted, but not cached.', 'white'))
         return
 
     user = user_by_id(msg.author_id)
@@ -241,7 +278,6 @@ def check_and_send_deleted_message(chat_id, message_id):
 def on_message_edit(update):
 
     if not 'chat_id' in update:
-        print("Dbg: chat_id not in update")
         return
 
     msg_chat_id = update['chat_id']
@@ -251,7 +287,6 @@ def on_message_edit(update):
         return
 
     if not 'message_id' in update:
-        print("Dbg: message_id not in update")
         return
     
     msg_id = update['message_id']
@@ -303,12 +338,78 @@ def on_message_edit(update):
     m += f'to\n'
     m += f'✏️ **@{nm.content_type}**: {nm.content_text}\n'
     
-    print("Sending ...")
+    pretty_print(bmodes.DETECTOR, "Found editied message: " + colored(f'#{nm.msg_id}', 'magenta') + colored(' | sending ...', 'white'))
+
     res = tg.send_message(s['sending-chat'], m)
     res.wait()
 
-tg.add_update_handler('updateDeleteMessages', on_messages_delete)
-tg.add_update_handler('updateMessageEdited', on_message_edit)
-tg.add_message_handler(on_message)
+def forwarder_on_message(update):
 
+    # check if message is in update
+    if not 'message' in update:
+        return
+
+    # get message from update
+    message = update['message']
+
+    # get meta data from message
+    msg_id = message['id']
+    msg_chat_id = message['chat_id']
+    msg_forward_ability = message['can_be_forwarded']
+    msg_content = get_message_as_text(message)
+
+    # check if this message is from ah's channel
+    if msg_chat_id != settings['forwarder']['chat-pull']:
+        return
+
+    pretty_print(bmodes.FWD, f'Found message in pull-channel: {colored(f"#{msg_id}", "magenta")} {colored("« ", "white")}{colored(msg_content, "yellow")}{colored(" »", "white")}')
+
+    # check if we can forward this message
+    if not msg_forward_ability:
+        pretty_print(bmodes.FWD, colored('Warning: ', 'yellow') + colored(f"Found message, but can't forward message #{msg_id} ('{msg_content}')", 'white'))
+        return
+
+    # call forwarding
+    res = tg.call_method("forwardMessages", params={
+        'chat_id': settings['forwarder']['chat-publish'],
+        'from_chat_id': msg_chat_id,
+        'message_ids': [msg_id],
+        'options': {},
+        'as_album': False,
+        'send_copy': False,
+        'remove_caption': False
+    })
+    res.wait()
+
+    print(settings['forwarder']['chat-publish'])
+
+    if res.error:
+        pretty_print(bmodes.FWD, colored(' -> ', 'white') + colored('Error: ', 'red') + colored(res.error_info, 'white'))
+    else:
+        pretty_print(bmodes.FWD, ' -> Forwarded')
+
+def command_on_message(update):
+    # check if message is in update
+    if not 'message' in update:
+        return
+
+    # get message from update
+    message = update['message']
+
+    msg_id = message['id']
+    msg_chat_id = message['chat_id']
+    msg_content = get_message_as_text(message)
+
+    if msg_content == '.chat':
+        pretty_print(bmodes.DBG, f"Chat: {colored(f'#{msg_chat_id}', 'magenta')}, Message: {colored(f'#{msg_id}', 'magenta')}")
+
+if settings['del-edit-detector']['enable']['delete'] or s['del-edit-detector']['enable']['edit']:
+    tg.add_message_handler(detector_on_message)
+    tg.add_update_handler('updateDeleteMessages', detector_on_messages_delete)
+    tg.add_update_handler('updateMessageEdited', on_message_edit)
+
+if settings['forwarder']['enable']:
+    tg.add_message_handler(forwarder_on_message)
+
+tg.add_message_handler(command_on_message)
 tg.idle()
