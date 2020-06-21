@@ -1,14 +1,17 @@
 from telegram.client import Telegram
-from ah_settings import settings
 
-s = settings['forwarder']
+# chat id for attila hildmann's channel
+ah_chat_id = -1001444228991
+
+# chat id for the backup channel
+backup_chat_id = -1001313633086 # <- Atti beweise backup  # Test2: -1001401002556
 
 # initialize telegram client
 tg = Telegram(
-    settings['telegram']['api-key'],
-    settings['telegram']['api-hash'],
-    database_encryption_key=settings['telegram']['database-encryption-key'],
-    phone=settings['telegram']['phone']
+    1403031, # api_id
+    '34315b80b5f16f19a353834967287a01', # api_hash
+    phone='+19794126794', # phone-#
+    database_encryption_key='changeme1234' # database_encryption_key, by default 'changeme1234'
 )
 
 # login to telegram,
@@ -45,8 +48,10 @@ def new_message_handler(update):
             msg_content = content['caption']['text']
 
     # check if this message is from ah's channel
-    if msg_chat_id != s['chat-pull']:
+    if msg_chat_id != ah_chat_id:
         return
+
+    print(message)
 
     # check if we can forward this message
     if not msg_forward_ability:
@@ -57,7 +62,7 @@ def new_message_handler(update):
 
     # call forwarding
     tg.call_method("forwardMessages", params={
-        'chat_id': s['chat-publish'],
+        'chat_id': backup_chat_id,
         'from_chat_id': msg_chat_id,
         'message_ids': [msg_id],
         'options': {},
