@@ -200,7 +200,8 @@ def on_messages_delete(update):
         check_and_send_deleted_message(msg_chat_id, m_id)
 
 def check_and_send_deleted_message(chat_id, message_id):
-    
+    global redis
+
     msg = message_by_redis(chat_id, message_id)
     if msg == None:
         print(f"Dbg: Message #{message_id} in #{chat_id} deleted, but not cached")
@@ -233,6 +234,9 @@ def check_and_send_deleted_message(chat_id, message_id):
     
     res = tg.send_message(s['sending-chat'], m)
     res.wait()
+
+    # add to redis for statistical purposes
+    redis.set(f"deleted-{chat_id}-{message_id}", json.dumps(msg.message_raw))
 
 def on_message_edit(update):
 
