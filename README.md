@@ -1,9 +1,8 @@
-# telegramwtf
-*just ignore me*  
-plz don't judge me, I'm new to Python
+# FCDeletions
+a really really small, quick'n'dirty telegram bot that sends deleted messages from a group to another channel
 
 ## Docker
 ```
-# docker build . -t telegramwtf:v1
-$ docker run -it --rm  -v "${PWD}/.tdlib":"/tmp/.tdlib_files" telegramwtf:v1 python <script>.py
+# docker build . -t fcdeletions:v1
+$ docker run -it --rm  -v "${PWD}/.tdlib":"/tmp/.tdlib_files" fcdeletions:v1 python <script>.py
 ```
